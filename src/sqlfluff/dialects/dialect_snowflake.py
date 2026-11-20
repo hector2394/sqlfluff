@@ -240,6 +240,12 @@ snowflake_dialect.sets("data_metric_schedule_types").update(
 )
 
 snowflake_dialect.add(
+    # Keep the declaration's semicolon inside the enclosing statement.
+    ScriptingDeclareBlockGrammar=Sequence(
+        Ref("ScriptingDeclareStatementSegment"),
+        Ref("DelimiterGrammar"),
+        Ref("ScriptingBlockStatementSegment"),
+    ),
     # Pipe properties shared by CREATE PIPE and DEFINE PIPE
     # https://docs.snowflake.com/en/sql-reference/sql/create-pipe
     PipePropertiesGrammar=Sequence(
@@ -4859,6 +4865,7 @@ class CreateProcedureStatementSegment(BaseSegment):
                 Ref("SingleQuotedUDFBody"),
                 Ref("DollarQuotedUDFBody"),
                 # ...or a SQL UDF
+                Ref("ScriptingDeclareBlockGrammar"),
                 Ref("ScriptingBlockStatementSegment"),
             ),
             optional=True,
@@ -7058,7 +7065,10 @@ class CreateTaskSegment(BaseSegment):
         ),
         Ref.keyword("AS"),
         Indent,
-        Ref("StatementSegment"),
+        OneOf(
+            Ref("ScriptingDeclareBlockGrammar"),
+            Ref("StatementSegment"),
+        ),
         Dedent,
     )
 
@@ -12433,11 +12443,24 @@ class BindVariableSegment(BaseSegment):
 class ScriptingDeclareStatementSegment(BaseSegment):
     """A snowflake `Declare` statement for SQL scripting.
 
+    Typed variables can omit the initializer.
+
     https://docs.snowflake.com/en/sql-reference/snowflake-scripting/declare
     https://docs.snowflake.com/en/developer-guide/snowflake-scripting/variables
     """
 
     type = "scripting_declare_statement"
+    _variable_assignment = OneOf(
+        Sequence(
+            Ref("DatatypeSegment"),
+            OneOf("DEFAULT", Ref("WalrusOperatorSegment")),
+            Ref("ExpressionSegment"),
+        ),
+        Sequence(
+            OneOf("DEFAULT", Ref("WalrusOperatorSegment")),
+            Ref("ExpressionSegment"),
+        ),
+    )
     match_grammar = Sequence(
         "DECLARE",
         Indent,
@@ -12445,18 +12468,7 @@ class ScriptingDeclareStatementSegment(BaseSegment):
             # Avoid BEGIN as a variable from the subsequent scripting block
             Ref("LocalVariableNameSegment", exclude=Ref.keyword("BEGIN")),
             OneOf(
-                # Variable assignment
-                OneOf(
-                    Sequence(
-                        Ref("DatatypeSegment"),
-                        OneOf("DEFAULT", Ref("WalrusOperatorSegment")),
-                        Ref("ExpressionSegment"),
-                    ),
-                    Sequence(
-                        OneOf("DEFAULT", Ref("WalrusOperatorSegment")),
-                        Ref("ExpressionSegment"),
-                    ),
-                ),
+                _variable_assignment,
                 # Cursor assignment
                 Sequence(
                     "CURSOR",
@@ -12485,6 +12497,7 @@ class ScriptingDeclareStatementSegment(BaseSegment):
                         )
                     ),
                 ),
+                Ref("DatatypeSegment"),
             ),
         ),
         AnyNumberOf(
@@ -12493,18 +12506,7 @@ class ScriptingDeclareStatementSegment(BaseSegment):
                 # Avoid BEGIN as a variable from the subsequent scripting block
                 Ref("LocalVariableNameSegment", exclude=Ref.keyword("BEGIN")),
                 OneOf(
-                    # Variable assignment
-                    OneOf(
-                        Sequence(
-                            Ref("DatatypeSegment"),
-                            OneOf("DEFAULT", Ref("WalrusOperatorSegment")),
-                            Ref("ExpressionSegment"),
-                        ),
-                        Sequence(
-                            OneOf("DEFAULT", Ref("WalrusOperatorSegment")),
-                            Ref("ExpressionSegment"),
-                        ),
-                    ),
+                    _variable_assignment,
                     # Cursor assignment
                     Sequence(
                         "CURSOR",
@@ -12535,6 +12537,7 @@ class ScriptingDeclareStatementSegment(BaseSegment):
                             )
                         ),
                     ),
+                    Ref("DatatypeSegment"),
                 ),
             ),
         ),
